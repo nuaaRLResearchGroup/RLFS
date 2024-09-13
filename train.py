@@ -59,30 +59,30 @@ def uiqi(reference_image, distorted_image):
         transforms.ToTensor()
     ])
 
-    # 使用ToPILImage转换
+
     transform_to_pil_image = transforms.ToPILImage()
 
-    # 将张量转换为PIL图像
+
     ref_PIL = transform_to_pil_image(reference_image)
     dist_PIL = transform_to_pil_image(distorted_image)
     
     ref_gray = transform_to_gray(ref_PIL).unsqueeze(0)
     dist_gray = transform_to_gray(dist_PIL).unsqueeze(0)
     
-    # 计算平均亮度
+
     mu1 = ref_gray.mean()
     mu2 = dist_gray.mean()
 
-    # 计算方差
+
     sigma1_sq = ((ref_gray - mu1) ** 2).mean()
     sigma2_sq = ((dist_gray - mu2) ** 2).mean()
 
-    # 计算协方差
+
     sigma_12 = ((ref_gray - mu1) * (dist_gray - mu2)).mean()
-    # 添加一个非常小的数以避免除以零
+
     epsilon = 1e-10
 
-    # 计算 UIQI 值，避免除以零
+
     uiqi_value = (4 * mu1 * mu2 * sigma_12) / ((mu1.pow(2) + mu2.pow(2) + epsilon) * (sigma1_sq + sigma2_sq + epsilon))
     
     return uiqi_value
@@ -126,7 +126,7 @@ def main():
 
     mu = [.5, .5, .5]
     sigma = [.5, .5, .5]
-    # 数据预处理
+
     transform = transforms.Compose([transforms.RandomHorizontalFlip(),  # 以一定的概率随机水平翻转图像
                                     transforms.RandomCrop(
                                         360, pad_if_needed=True),  # 会随机裁剪图像。它将图像裁剪为指定的大小（360x360），如果图像的尺寸小于指定大小，则会进行填充。
@@ -134,17 +134,17 @@ def main():
                                     transforms.Normalize(mu,
                                                          sigma)])  # 这个操作对图像进行标准化处理，将图像的像素值减去均值(mu)并除以标准差(sigma)。这样做可以使得图像的每个通道具有零均值和单位方差，有助于模型的训练。
     
-    # 训练集
+
     train_set = datasets.ImageFolder(os.path.join(  # 加载数据集，并进行预处理
         data_dir, "train/"), transform=transform)
 
-    # 验证集
+
     valid_set = datasets.ImageFolder(os.path.join(
         data_dir, "val/"), transform=transform)
 
     algs=['DQN-2','HRL-2']
     modes=['Basic','Residual','Dense']
-    #存储数据
+
     fieldnames = [
     'algorithm', 'mode','depth','combination','h0_reward', 'h1_reward', 'reward', 'bpp', 'mse',
     'cover_scores', 'message_density', 'uiqi', 'rs', 'psnr', 'ssim', 'consumption','generated_scores',
@@ -191,7 +191,7 @@ def main():
         ssim_avg = []
         consumption_avg = []
         
-        # 初始化智能体
+
         if alg in ['HRL-1','HRL-2']:
             agent=HRL()
         elif alg in ['DQN-1','DQN-2']:
@@ -202,7 +202,7 @@ def main():
             fixed_mode=modes.index(alg)
             agent=FixedAgent(fixed_mode, max_data_depth)
 
-        # 初始化编解码器
+
         encoders = {depth: [] for depth in range(1, 1 + max_data_depth)}
         for depth in encoders.keys():
             for Encoder in [BasicEncoder, ResidualEncoder, DenseEncoder]:
@@ -237,7 +237,6 @@ def main():
         next_state = [0, 0, 0, 0, 0]
 
         for ep in tqdm(range(epochs)):
-            # 原始 dataset 抽样到 subset
             train_size = 100
             valid_size = 50
             train_indices = np.random.choice(range(len(train_set)), train_size, replace=False)
@@ -249,31 +248,26 @@ def main():
             
             state = next_state
             if alg in ['HRL-1','HRL-2']:
-                # 更新状态 选择动作
-                # 因为下层的下个状态需要上层的动作 所以动作选择在本回合结束后
-                # 这里是最开始先选择一次动作
                 if ep==0:
                     h0_action,h1_action = agent.choose_action(state)
                 else:
                     h0_action,h1_action = h0_next_action,h1_next_action
                 encode_mode = h0_action
                 decode_mode = h0_action
-                data_depth = h1_action +1 #深度范围从1开始  
-            #模型选择和嵌入深度
+                data_depth = h1_action +1
             else:
                 action, _ = agent.choose_action(state)
                 encode_mode = action // max_data_depth
                 decode_mode = action // max_data_depth
                 data_depth = action % max_data_depth + 1
             
-            # 记录动作选择
+
             moede_alg[alg].append(encode_mode)
             depth_alg[alg].append(data_depth)   
             if alg in ['HRL-1','HRL-2']:
                 combination_alg[alg].append(h0_action*8+h1_action+1)
             else :
                 combination_alg[alg].append(action+1)
-            # 选择编码器和解码器
             encoder = encoders[data_depth][encode_mode]
             decoder = decoders[data_depth][decode_mode]
             en_de_optimizer = Adam(list(decoder.parameters()) +
@@ -303,8 +297,7 @@ def main():
                     p.data.clamp_(-0.1, 0.1)
                 metrics['train.cover_score'].append(cover_score.item())  # 添加相关参数
                 metrics['train.generated_score'].append(generated_score.item())
-            
-            # 训练编码器和解码器
+
             rgb_weights = torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1).to(device)
             for cover, _ in train_loader:
                 gc.collect()
